@@ -179,3 +179,9 @@ Use at your own risk and review the script before running it on production serve
 ---
 
 ⭐ If this project helped you, please **star** the repository!
+
+---
+
+## Stargazers over time
+
+[![Stargazers over time](https://starchart.cc/ach1992/backup-marz-x-ui.svg)](https://starchart.cc/ach1992/backup-marz-x-ui)
