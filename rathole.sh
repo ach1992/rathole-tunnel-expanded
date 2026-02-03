@@ -435,8 +435,8 @@ EOF
 
 
 # Defaults (user can override while creating tunnel)
-KEEPALIVE_SECS_DEFAULT=20
-KEEPALIVE_INTERVAL_DEFAULT=8
+KEEPALIVE_SECS_DEFAULT=10
+KEEPALIVE_INTERVAL_DEFAULT=5
 HEALTHCHECK_CRON_DEFAULT="*/3 * * * *"   # every 3 minutes
   
 # Function to configure Iran server
@@ -513,7 +513,7 @@ iran_server_configuration() {
 	done
     
     if [[ "$HEARTBEAT" == "true" ]]; then
-    	HEARTBEAT="20"
+    	HEARTBEAT="30"
     else
     	HEARTBEAT="0"
     fi
@@ -701,7 +701,7 @@ kharej_server_configuration() {
 	done
     
     if [[ "$HEARTBEAT" == "true" ]]; then
-    	HEARTBEAT="60"
+    	HEARTBEAT="30"
     else
     	HEARTBEAT="0"
     fi
