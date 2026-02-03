@@ -353,29 +353,7 @@ configure_tunnel() {
 }
 
 #Global Variables
-service_dir="/etc/systemd/system"
-
-
-# -----------------------------
-# Systemd Defaults
-# -----------------------------
-write_systemd_override() {
-  local unit="$1"   # e.g. rathole-iran443.service
-
-  mkdir -p "/etc/systemd/system/${unit}.d"
-
-  cat > "/etc/systemd/system/${unit}.d/override.conf" <<'EOF'
-[Unit]
-StartLimitIntervalSec=0
-
-[Service]
-Restart=always
-RestartSec=3
-LimitNOFILE=1048576
-TimeoutStopSec=10
-KillSignal=SIGTERM
-EOF
-}
+service_dir="/etc/systemd/system" 
 
 # -----------------------------
 # Healthcheck (systemd timer + cooldown)
@@ -628,19 +606,20 @@ EOF
 [Unit]
 Description=Rathole Iran Port $tunnel_port (Iran)
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=${config_dir}/rathole ${config_dir}/iran${tunnel_port}.toml
 Restart=always
 RestartSec=3
+LimitNOFILE=1048576
+TimeoutStopSec=10
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    # Apply systemd defaults (like: systemctl edit ...)
-    write_systemd_override "rathole-iran${tunnel_port}.service"
 
     # Reload systemd to read the new unit file
     systemctl daemon-reload >/dev/null 2>&1
@@ -826,21 +805,22 @@ EOF
     # Create the systemd service unit file
     cat << EOF > "${service_dir}/rathole-kharej${tunnel_port}.service"
 [Unit]
-Description=Rathole Kharej Port $tunnel_port 
+Description=Rathole Kharej Port $tunnel_port
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=${config_dir}/rathole ${config_dir}/kharej${tunnel_port}.toml
 Restart=always
 RestartSec=3
+LimitNOFILE=1048576
+TimeoutStopSec=10
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    # Apply systemd defaults (like: systemctl edit ...)
-    write_systemd_override "rathole-kharej${tunnel_port}.service"
 
     # Reload systemd to read the new unit file
     systemctl daemon-reload >/dev/null 2>&1
@@ -1181,6 +1161,8 @@ remove_healthcheck() {
   sleep 1
 }
 
+
+
 prompt_healthcheck_enable() {
   local service_name="$1"
 
@@ -1200,6 +1182,7 @@ prompt_healthcheck_enable() {
     fi
   done
 }
+
 
 add_new_config(){
     echo
