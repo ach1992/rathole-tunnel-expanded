@@ -199,7 +199,7 @@ ____________ _/  |_|  |__   ____ |  |   ____
             \/          \/                 \/ 	
 EOF
     echo -e "${NC}${GREEN}"
-    echo -e "Version: ${YELLOW}v1.0.0${GREEN}"
+    echo -e "Version: ${YELLOW}v3.0.0${GREEN}"
     echo -e "Github: ${YELLOW}github.com/ach1992/rathole-tunnel-expanded${GREEN}"
     echo -e "Telegram Channel: ${YELLOW}---${NC}"
 }
