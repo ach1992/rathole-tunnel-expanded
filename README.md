@@ -173,8 +173,8 @@ sudo journalctl -t rathole-healthcheck --no-pager -n 50
 
 ## Disclaimer
 
-This project modifies system configuration (systemd services, optional cron/healthcheck).  
-Use at your own risk and review the script before running it on production servers.
+This script creates and manages systemd service units for Rathole tunnels and can optionally install a systemd timer–based healthcheck.
+Run it as root (or with sudo), review the script before use, and use it at your own risk—especially on production servers.
 
 ---
 
@@ -184,4 +184,4 @@ Use at your own risk and review the script before running it on production serve
 
 ## Stargazers over time
 
-[![Stargazers over time](https://starchart.cc/ach1992/backup-marz-x-ui.svg)](https://starchart.cc/ach1992/backup-marz-x-ui)
+[![Stargazers over time](https://starchart.cc/ach1992/rathole-tunnel-expanded.svg)](https://starchart.cc/ach1992/rathole-tunnel-expanded)
