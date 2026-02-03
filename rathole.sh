@@ -199,9 +199,9 @@ ____________ _/  |_|  |__   ____ |  |   ____
             \/          \/                 \/ 	
 EOF
     echo -e "${NC}${GREEN}"
-    echo -e "Version: ${YELLOW}v2.0${GREEN}"
+    echo -e "Version: ${YELLOW}v1.0.0${GREEN}"
     echo -e "Github: ${YELLOW}github.com/ach1992/rathole-tunnel-expanded${GREEN}"
-    echo -e "Telegram Channel: ${YELLOW}@Gozar_Xray${NC}"
+    echo -e "Telegram Channel: ${YELLOW}---${NC}"
 }
 
 # Function to display server location and IP
@@ -354,6 +354,107 @@ configure_tunnel() {
 
 #Global Variables
 service_dir="/etc/systemd/system"
+
+
+# -----------------------------
+# Systemd Defaults
+# -----------------------------
+write_systemd_override() {
+  local unit="$1"   # e.g. rathole-iran443.service
+
+  mkdir -p "/etc/systemd/system/${unit}.d"
+
+  cat > "/etc/systemd/system/${unit}.d/override.conf" <<'EOF'
+[Unit]
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+TimeoutStopSec=10
+KillSignal=SIGTERM
+EOF
+}
+
+# -----------------------------
+# Healthcheck (systemd timer + cooldown)
+# -----------------------------
+install_healthcheck_units() {
+  # Healthcheck script (cooldown-based)
+  if [[ ! -f /usr/local/bin/rathole-healthcheck.sh ]]; then
+    cat > /usr/local/bin/rathole-healthcheck.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: rathole-healthcheck.sh <service-base-name-without-.service>
+SERVICE_BASE="${1:?Usage: rathole-healthcheck.sh <service-base-name>}"
+SERVICE="${SERVICE_BASE}.service"
+
+WINDOW="3 min"
+THRESHOLD=3
+COOLDOWN_SECONDS=300
+
+STATE_DIR="/run/rathole-healthcheck"
+STATE_FILE="${STATE_DIR}/${SERVICE_BASE}.last_restart_epoch"
+
+mkdir -p "$STATE_DIR"
+
+NOW_EPOCH="$(date +%s)"
+LAST_EPOCH="0"
+if [[ -f "$STATE_FILE" ]]; then
+  LAST_EPOCH="$(cat "$STATE_FILE" 2>/dev/null || echo 0)"
+fi
+
+# Count repeated errors in recent logs
+COUNT="$(journalctl -u "$SERVICE" --since "-$WINDOW" --no-pager \
+  | grep -E -c "Failed to run the data channel|Heartbeat timed out|Connection timed out" || true)"
+
+AGE=$(( NOW_EPOCH - LAST_EPOCH ))
+
+if [[ "$COUNT" -ge "$THRESHOLD" && "$AGE" -ge "$COOLDOWN_SECONDS" ]]; then
+  logger -t rathole-healthcheck "Too many tunnel errors ($COUNT in last $WINDOW). Restarting $SERVICE"
+  systemctl restart "$SERVICE"
+  echo "$NOW_EPOCH" > "$STATE_FILE"
+elif [[ "$COUNT" -ge "$THRESHOLD" && "$AGE" -lt "$COOLDOWN_SECONDS" ]]; then
+  logger -t rathole-healthcheck "Too many tunnel errors ($COUNT in last $WINDOW), but cooldown active (${AGE}s < ${COOLDOWN_SECONDS}s). Skipping restart."
+fi
+EOF
+    chmod +x /usr/local/bin/rathole-healthcheck.sh
+  fi
+
+  # systemd template service
+  if [[ ! -f /etc/systemd/system/rathole-healthcheck@.service ]]; then
+    cat > /etc/systemd/system/rathole-healthcheck@.service <<'EOF'
+[Unit]
+Description=Healthcheck for %i (restart on repeated tunnel failures)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rathole-healthcheck.sh %i
+EOF
+  fi
+
+  # systemd template timer (every minute)
+  if [[ ! -f /etc/systemd/system/rathole-healthcheck@.timer ]]; then
+    cat > /etc/systemd/system/rathole-healthcheck@.timer <<'EOF'
+[Unit]
+Description=Run rathole healthcheck for %i every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  fi
+
+  systemctl daemon-reload >/dev/null 2>&1
+}
+
 
 # Defaults (user can override while creating tunnel)
 KEEPALIVE_SECS_DEFAULT=20
@@ -538,11 +639,14 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
+    # Apply systemd defaults (like: systemctl edit ...)
+    write_systemd_override "rathole-iran${tunnel_port}.service"
+
     # Reload systemd to read the new unit file
     systemctl daemon-reload >/dev/null 2>&1
 
     # Enable and start the service to start on boot
-    if systemctl enable --now "${service_dir}/rathole-iran${tunnel_port}.service" >/dev/null 2>&1; then
+    if systemctl enable --now "rathole-iran${tunnel_port}.service" >/dev/null 2>&1; then
         colorize green "Iran service with port $tunnel_port enabled to start on boot and started."
     else
         colorize red "Failed to enable service with port $tunnel_port. Please check your system configuration."
@@ -735,11 +839,14 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
+    # Apply systemd defaults (like: systemctl edit ...)
+    write_systemd_override "rathole-kharej${tunnel_port}.service"
+
     # Reload systemd to read the new unit file
     systemctl daemon-reload >/dev/null 2>&1
 
     # Enable and start the service to start on boot
-    if systemctl enable --now "${service_dir}/rathole-kharej${tunnel_port}.service" >/dev/null 2>&1; then
+    if systemctl enable --now "rathole-kharej${tunnel_port}.service" >/dev/null 2>&1; then
         colorize green "Kharej service with port $tunnel_port enabled to start on boot and started."
     else
         colorize red "Failed to enable service with port $tunnel_port. Please check your system configuration."
@@ -961,6 +1068,7 @@ destroy_tunnel(){
 	fi
 
     delete_cron_job $service_name
+    remove_healthcheck "$service_name"
     
     # Stop and disable the client service if it exists
     if [[ -f "$service_path" ]]; then
@@ -1037,51 +1145,37 @@ delete_cron_job() {
 
 add_healthcheck() {
   local service_name="$1"
-  local hc_tag="#hc-$service_name"
-  local hc_script="$config_dir/healthcheck-${service_name%.service}.sh"
+  local instance="${service_name%.service}"   # e.g. rathole-kharej443
+  local old_hc_tag="#hc-$service_name"
+  local old_hc_script="$config_dir/healthcheck-${instance}.sh"
 
-  # defaults (safe)
-  local window_minutes=5
-  local threshold=3
+  # Cleanup old cron-based healthcheck (if it existed)
+  crontab -l 2>/dev/null | grep -v "$old_hc_tag" | crontab - 2>/dev/null || true
+  rm -f "$old_hc_script" >/dev/null 2>&1 || true
 
-  # create healthcheck script (log-based)
-  cat <<EOF > "$hc_script"
-#!/usr/bin/env bash
-set -euo pipefail
+  install_healthcheck_units
 
-SERVICE="$service_name"
-WINDOW_MINUTES=$window_minutes
-THRESHOLD=$threshold
-
-# Look for "stuck" patterns in recent logs
-COUNT=\$(journalctl -u "\$SERVICE" --since "-\${WINDOW_MINUTES} min" --no-pager \\
-  | grep -E -c "Failed to run the data channel|Heartbeat timed out|Connection timed out" || true)
-
-if [ "\$COUNT" -ge "\$THRESHOLD" ]; then
-  logger -t rathole-healthcheck "Too many tunnel errors (\$COUNT in last \${WINDOW_MINUTES}m). Restarting \$SERVICE"
-  systemctl restart "\$SERVICE"
-fi
-EOF
-
-  chmod +x "$hc_script"
-
-  # remove previous hc entry (if any) then add
-  crontab -l 2>/dev/null | grep -v "$hc_tag" > /tmp/crontab.hc.tmp || true
-  echo "$HEALTHCHECK_CRON_DEFAULT $hc_script $hc_tag" >> /tmp/crontab.hc.tmp
-  crontab /tmp/crontab.hc.tmp
-  rm -f /tmp/crontab.hc.tmp
-
-  colorize green "Healthcheck enabled for $service_name (cron: $HEALTHCHECK_CRON_DEFAULT, window: ${window_minutes}m, threshold: $threshold)" bold
+  if systemctl enable --now "rathole-healthcheck@${instance}.timer" >/dev/null 2>&1; then
+    colorize green "Healthcheck enabled for $service_name (systemd timer every 60s, window: 3m, threshold: 3, cooldown: 300s)" bold
+  else
+    colorize red "Failed to enable healthcheck timer for $service_name"
+  fi
   sleep 1
 }
 
 remove_healthcheck() {
   local service_name="$1"
-  local hc_tag="#hc-$service_name"
-  local hc_script="$config_dir/healthcheck-${service_name%.service}.sh"
+  local instance="${service_name%.service}"
+  local old_hc_tag="#hc-$service_name"
+  local old_hc_script="$config_dir/healthcheck-${instance}.sh"
+  local state_file="/run/rathole-healthcheck/${instance}.last_restart_epoch"
 
-  crontab -l 2>/dev/null | grep -v "$hc_tag" | crontab - 2>/dev/null || true
-  rm -f "$hc_script" >/dev/null 2>&1
+  # Cleanup old cron-based healthcheck (if it existed)
+  crontab -l 2>/dev/null | grep -v "$old_hc_tag" | crontab - 2>/dev/null || true
+  rm -f "$old_hc_script" >/dev/null 2>&1 || true
+
+  systemctl disable --now "rathole-healthcheck@${instance}.timer" >/dev/null 2>&1 || true
+  rm -f "$state_file" >/dev/null 2>&1 || true
 
   colorize green "Healthcheck removed for $service_name" bold
   sleep 1
@@ -1106,7 +1200,6 @@ prompt_healthcheck_enable() {
     fi
   done
 }
-
 
 add_new_config(){
     echo
