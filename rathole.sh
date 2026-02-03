@@ -434,7 +434,7 @@ iran_server_configuration() {
 	done
     
     if [[ "$HEARTBEAT" == "true" ]]; then
-    	HEARTBEAT="30"
+    	HEARTBEAT="20"
     else
     	HEARTBEAT="0"
     fi
@@ -618,7 +618,7 @@ kharej_server_configuration() {
 	done
     
     if [[ "$HEARTBEAT" == "true" ]]; then
-    	HEARTBEAT="40"
+    	HEARTBEAT="60"
     else
     	HEARTBEAT="0"
     fi
